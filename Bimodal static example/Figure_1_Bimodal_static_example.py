@@ -278,7 +278,7 @@ y = 0.5*x*x + sigma*torch.randn((N,dy))
 # y = (torch.randint(0,2,(N,2))*2-1)*3 + sigma*torch.randn((N,d))
 # =============================================================================
 
-ITERS = int(1e3)#*5)
+ITERS = int(1e3*5)
 LR = 1e-3
 
 INPUT_DIM = [d,dy]
