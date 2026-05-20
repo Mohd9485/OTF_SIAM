@@ -192,7 +192,7 @@ def w2_distance(x, y):
 
 
 # --- Problem setup ---
-d         = 1              # state dimension
+d         = 20              # state dimension
 lamda     = 0              # regularization strength (λ=0 for SMAC tuning)
 dy        = d              # observation dimension
 INPUT_DIM = [d, dy]        # input dimensions for both networks: [state dim, observation dim]
