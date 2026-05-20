@@ -68,7 +68,8 @@ class ResidualBlock(nn.Module):
         out = self.linear1(x)
         out = self.activation(out)
         out = self.linear2(out)
-        return self.activation(out + identity)
+        out = self.activation(out + identity)
+        return out
 
 
 class f_NN(nn.Module):
@@ -111,8 +112,9 @@ class map_NN(nn.Module):
 
 def init_weights(m):
     """Initialize biases of linear layers to a small positive constant."""
-    if isinstance(m, nn.Linear) and m.bias is not None:
-        m.bias.data.fill_(0.001)
+    if isinstance(m, nn.Linear):
+        if m.bias is not None:
+            m.bias.data.fill_(0.001)
 
 
 def train(f, T, X_Train, Y_Train, iterations, lr_f, lr_T, batch_size, delta_T, delta_f, K_in, iter_0):
@@ -271,7 +273,6 @@ for lamda in Lambda:
 
     results[lamda] = {'x_transported': x_transported, 'f_plot': f_plot, 'T_plot': T_plot}
 
-#%%
 # --- Plotting ---
 bw       = 1.0 / 5  # KDE bandwidth multiplier: < 1 sharper, > 1 smoother
 

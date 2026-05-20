@@ -199,7 +199,6 @@ def target_fun(config, seed: int = 0) -> float:
         "INPUT_DIM":              [L, dy],
         "NUM_NEURON":             [int(config["num_neuron_f"]) * 32,
                                    int(config["num_neuron_T"]) * 32],
-        "SAMPLE_SIZE":            J,
         "BATCH_SIZE":             int(config["batch_size"]) * 32,
         "LearningRate":           [float(config["lr_f"]), float(config["lr_T"])],
         "ITERATION":              int(config["iteration"]) * 512,

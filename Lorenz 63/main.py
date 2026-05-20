@@ -143,8 +143,7 @@ tau = 1e-2        # time step size
 T   = 5           # final simulation time (seconds)
 N   = int(T/tau)  # total number of time steps
 
-dy = 1                 # number of observed states
-H  = np.zeros((dy, L)) # observation matrix (unused; h() defines the observation rule instead)
+dy = 1  # number of observed states
 
 noise   = np.sqrt(1e1)  # noise level standard deviation
 sigmma  = noise/10      # process noise std for the hidden state

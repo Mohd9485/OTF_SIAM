@@ -84,7 +84,7 @@ class f_NN(nn.Module):
         self.resblocks   = nn.ModuleList([
             ResidualBlock(hidden_dim, self.activation) for _ in range(num_resblocks)
         ])
-        self.layer_out = nn.Linear(hidden_dim, 1, bias=True)
+        self.layer_out   = nn.Linear(hidden_dim, 1, bias=True)
 
     def forward(self, x, y):
         out = self.layer_input(torch.concat((x, y), dim=1))
@@ -103,7 +103,7 @@ class map_NN(nn.Module):
         self.resblocks   = nn.ModuleList([
             ResidualBlock(hidden_dim, self.activation) for _ in range(num_resblocks)
         ])
-        self.layer_out = nn.Linear(hidden_dim, input_dim[0], bias=True)
+        self.layer_out   = nn.Linear(hidden_dim, input_dim[0], bias=True)
 
     def forward(self, x, y):
         out = self.layer_input(torch.concat((x, y), dim=1))

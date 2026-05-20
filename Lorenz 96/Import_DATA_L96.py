@@ -45,7 +45,7 @@ Y_true   = data['Y_true']  # noisy observations,      shape (AVG_SIM, N, dy)
 X_EnKF   = data['X_EnKF']  # EnKF ensemble output,    shape (AVG_SIM, N, L, J)
 X_SIR    = data['X_SIR']   # SIR ensemble output,     shape (AVG_SIM, N, L, J)
 X_OT     = data['X_OT']    # OT filter output,        shape (AVG_SIM, N, L, J)
-X_OT_reg = data['X_OT_reg']# OT_reg filter output,   shape (AVG_SIM, N, L, J)
+X_OT_reg = data['X_OT_reg']  # OT_reg filter output,   shape (AVG_SIM, N, L, J)
 delta    = data['delta']    # regularization weights used during the run
 
 
