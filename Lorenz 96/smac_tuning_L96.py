@@ -10,11 +10,11 @@ Metric: MSE between OT particle mean and true trajectory,
 import time
 import numpy as np
 import torch
-from scipy.integrate import RK45
 from ConfigSpace import ConfigurationSpace, Float, Integer, Categorical
 from smac import Scenario, HyperparameterOptimizationFacade as HPO
 
 from OTF import OTF
+# from OTF_EnKF import OTF_EnKF as OTF
 
 
 # --- Device Setup ---
@@ -42,10 +42,17 @@ gamma   = noise          # std of observation noise
 x0_amp  = 1              # amplitude scaling applied to the initial state
 Noise   = [sigmma, gamma]
 
-T_final = tau * N  # total integration time horizon
-rk45    = True     # use RK45 integrator for data generation and filtering
+rk4 = True  # use RK4 integrator for data generation and filtering
 
 t = np.arange(0.0, tau * N, tau)  # time grid, shape (N,)
+
+
+def rk4_step(f, t, x, tau):
+    k1 = f(t,          x)
+    k2 = f(t + tau/2,  x + tau/2 * k1)
+    k3 = f(t + tau/2,  x + tau/2 * k2)
+    k4 = f(t + tau,    x + tau   * k3)
+    return x + tau/6 * (k1 + 2*k2 + 2*k3 + k4)
 
 
 # --- Model and Observation Functions ---
@@ -61,7 +68,7 @@ def L96(t, x):
 
     Parameters
     ----------
-    t : float    — current time (unused, required by RK45 interface)
+    t : float    — current time (unused, required by RK4 interface)
     x : ndarray, shape (L,) — current state vector
 
     Returns
@@ -80,7 +87,7 @@ def ML96(t, x):
 
     Parameters
     ----------
-    t : float              — current time (unused, required by RK45 interface)
+    t : float              — current time (unused, required by RK4 interface)
     x : ndarray, shape (L*J,) — flattened ensemble matrix
 
     Returns
@@ -114,9 +121,7 @@ def gen_data():
     x[0] = 10 + x0_amp * np.random.multivariate_normal(np.zeros(L), sigmma0**2 * np.eye(L), 1)
 
     for i in range(N - 1):
-        solver   = RK45(L96, t[i], x[i], T_final, first_step=tau)
-        solver.step()
-        x[i + 1] = solver.y + sai[i]
+        x[i + 1] = rk4_step(L96, t[i], x[i], tau) + sai[i]
         y[i + 1] = h(x[i + 1]) + eta[i + 1]
 
     Y_True = y[np.newaxis]  # add simulation axis, shape (1, N, dy)
@@ -153,13 +158,13 @@ def mse_score(X_filt, X_true):
 
 cs = ConfigurationSpace(seed=42)
 cs.add([
-    Float(  "lr_f",             (5e-5, 5e-3), log=True, default=5e-4),
-    Float(  "lr_T",             (5e-5, 5e-3), log=True, default=5e-4),
+    Float(  "lr_f",             (5e-5, 5e-3), log=True, default=1e-3),
+    Float(  "lr_T",             (5e-5, 5e-3), log=True, default=1e-3),
     Integer("num_neuron_f",     (1, 12),               default=8),   # x32 → 32–384 neurons
     Integer("num_neuron_T",     (1, 12),               default=5),   # x32 → 32–384 neurons
-    Integer("batch_size",       (1, 8),                default=2),   # x32 → 32–256 samples
-    Categorical("iteration",    [1, 3],                default=3),   # x512 → 512–1536 iterations
-    Integer("inner_iterations", (1, 6),                default=2),
+    Integer("batch_size",       (1, 8),                default=4),   # x32 → 32–256 samples
+    Categorical("iteration",    [1, 3, 7],                default=3),   # x512 → 512–1536 iterations
+    Integer("inner_iterations", (1, 4),                default=2),
 ])
 
 
@@ -228,7 +233,7 @@ def target_fun(config, seed: int = 0) -> float:
             Y_True, X0_ot, X_True = gen_data()
 
             X_filt = OTF(Y_True, X0_ot, parameters, ML96, h,
-                         t, tau, Noise, rk45, delta, local_device)
+                         t, tau, Noise, rk4, delta, local_device)
 
             all_X_filt.append(X_filt)  # shape (1, N, L, J)
             all_X_true.append(X_True)  # shape (1, N, L)

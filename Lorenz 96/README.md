@@ -3,7 +3,7 @@
 Sequential filtering experiment on the 9-dimensional Lorenz 96 chaotic system.
 Every third component is observed (indices 0, 3, 6), giving a 3-dimensional
 observation space. Four filters are compared: OTF (λ = 0), OTF_reg (λ = 0.1),
-EnKF, and SIR. RK45 integration is used throughout for higher accuracy.
+EnKF, and SIR. RK4 integration is used throughout for higher accuracy.
 
 ---
 
@@ -15,8 +15,8 @@ EnKF, and SIR. RK45 integration is used throughout for higher accuracy.
 | `main.py` | Generates AVG_SIM = 10 independent trajectories, runs all four filters, computes MSE, saves results to `DATA_file_L96.npz`, and plots state trajectories and MSE |
 | `Import_DATA_L96.py` | Loads `DATA_file_L96.npz` and re-produces the publication-quality figures |
 | `OTF.py` | Optimal Transport Filter with EnKF warm-start for the transport map |
-| `EnKF.py` | Ensemble Kalman Filter with optional RK45 integration |
-| `SIR.py` | Sequential Importance Resampling particle filter with optional RK45 integration |
+| `EnKF.py` | Ensemble Kalman Filter with optional RK4 integration |
+| `SIR.py` | Sequential Importance Resampling particle filter with optional RK4 integration |
 | `smac_tuning_L96.py` | SMAC hyperparameter search (only needed to re-tune; results are already in `param.py`) |
 
 ---
@@ -74,5 +74,5 @@ python smac_tuning_L96.py   # writes results to smac3_output/
 
 - Unlike L63, the L96 OTF uses **separate learning rates** for f and T and an **EnKF warm start** inside the transport map network, which helps convergence in higher dimensions.
 - `main.py` runs OTF and OTF_reg concurrently on two GPU devices using `ThreadPoolExecutor`. On a single GPU or CPU both threads share the same device.
-- The vectorized dynamics function `ML96` propagates the full ensemble matrix in one RK45 call; the scalar `L96` is used for data generation only.
+- The vectorized dynamics function `ML96` propagates the full ensemble matrix in one RK4 call; the scalar `L96` is used for data generation only.
 - Ensemble size is J = 1000 (250 × 4) and the iteration budget decays from 512 down to 64 over assimilation steps.

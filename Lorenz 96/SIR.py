@@ -5,10 +5,15 @@
 import numpy as np
 import time
 
-from scipy.integrate import RK45
+def rk4_step(f, t, x, tau):
+    k1 = f(t,          x)
+    k2 = f(t + tau/2,  x + tau/2 * k1)
+    k3 = f(t + tau/2,  x + tau/2 * k2)
+    k4 = f(t + tau,    x + tau   * k3)
+    return x + tau/6 * (k1 + 2*k2 + 2*k3 + k4)
 
 
-def SIR(Y, X0, A, h, t, tau, Noise, rk45):
+def SIR(Y, X0, A, h, t, tau, Noise, rk4):
     """
     Sequential Importance Resampling (SIR) particle filter for state estimation.
 
@@ -21,7 +26,7 @@ def SIR(Y, X0, A, h, t, tau, Noise, rk45):
     t      : ndarray                          — time grid
     tau    : float                            — time step size
     Noise  : tuple                            — noise parameters (noise, sigma, sigma0, gamma, x0_amp)
-    rk45   : bool                             — use RK45 integrator if True, else forward Euler
+    rk4   : bool                             — use RK4 integrator if True, else forward Euler
 
     Returns
     -------
@@ -39,8 +44,6 @@ def SIR(Y, X0, A, h, t, tau, Noise, rk45):
     # --- Noise Parameters ---
     sigmma = Noise[0]  # std of process noise in the hidden state
     gamma  = Noise[1]  # std of observation noise
-
-    T = tau * N             # total integration time horizon
 
     start_time = time.time()
 
@@ -61,10 +64,8 @@ def SIR(Y, X0, A, h, t, tau, Noise, rk45):
             sai_SIR = np.random.multivariate_normal(np.zeros(L), sigmma * sigmma * np.eye(L), J).transpose()
 
             # Forecast step: propagate particles forward by one time step
-            if rk45:
-                solver           = RK45(A, t[i], x_SIR[k, i,].reshape(-1), T, first_step=tau)
-                solver.step()
-                x_SIR[k, i + 1,] = solver.y.reshape(L, J) + sai_SIR        # RK45 forecast with noise
+            if rk4:
+                x_SIR[k, i + 1,] = rk4_step(A, t[i], x_SIR[k, i,].reshape(-1), tau).reshape(L, J) + sai_SIR  # RK4 forecast with noise
             else:
                 x_SIR[k, i + 1,] = x_SIR[k, i,] + A(t[i], x_SIR[k, i,]).reshape(L, J) * tau + sai_SIR  # Euler forecast with noise
 

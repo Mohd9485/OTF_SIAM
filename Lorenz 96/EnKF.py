@@ -5,10 +5,15 @@
 import numpy as np
 import time
 
-from scipy.integrate import RK45
+def rk4_step(f, t, x, tau):
+    k1 = f(t,          x)
+    k2 = f(t + tau/2,  x + tau/2 * k1)
+    k3 = f(t + tau/2,  x + tau/2 * k2)
+    k4 = f(t + tau,    x + tau   * k3)
+    return x + tau/6 * (k1 + 2*k2 + 2*k3 + k4)
 
 
-def EnKF(Y, X0, A, h, t, tau, Noise, rk45):
+def EnKF(Y, X0, A, h, t, tau, Noise, rk4):
     """
     Ensemble Kalman Filter (EnKF) for sequential state estimation.
 
@@ -21,7 +26,7 @@ def EnKF(Y, X0, A, h, t, tau, Noise, rk45):
     t      : ndarray                          — time grid
     tau    : float                            — time step size
     Noise  : tuple                            — noise parameters (noise, sigma, sigma0, gamma, x0_amp)
-    rk45   : bool                             — use RK45 integrator if True, else forward Euler
+    rk4   : bool                             — use RK4 integrator if True, else forward Euler
 
     Returns
     -------
@@ -39,8 +44,6 @@ def EnKF(Y, X0, A, h, t, tau, Noise, rk45):
     # --- Noise Parameters ---
     sigmma = Noise[0]  # std of process noise in the hidden state
     gamma  = Noise[1]  # std of observation noise
-
-    T = tau * N             # total integration time horizon
 
     start_time = time.time()
 
@@ -63,10 +66,8 @@ def EnKF(Y, X0, A, h, t, tau, Noise, rk45):
             sai_EnKF = np.random.multivariate_normal(np.zeros(L), sigmma * sigmma * np.eye(L), J)
 
             # Forecast step: propagate ensemble forward by one time step
-            if rk45:
-                solver    = RK45(A, t[i], (x_EnKF[i,].T).reshape(-1), T, first_step=tau)
-                solver.step()
-                x_hatEnKF = (solver.y.reshape(L, J)).T + sai_EnKF        # RK45 forecast with noise, shape (J, L)
+            if rk4:
+                x_hatEnKF = rk4_step(A, t[i], (x_EnKF[i,].T).reshape(-1), tau).reshape(L, J).T + sai_EnKF  # RK4 forecast with noise, shape (J, L)
             else:
                 x_hatEnKF = x_EnKF[i,] + tau * (A(t[i], x_EnKF[i,].T).reshape(L, J)).T + sai_EnKF  # Euler forecast with noise
 

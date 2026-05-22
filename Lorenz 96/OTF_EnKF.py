@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 from torch.func import vmap, jacrev
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
+from torch.distributions.multivariate_normal import MultivariateNormal
 def rk4_step(f, t, x, tau):
     k1 = f(t,          x)
     k2 = f(t + tau/2,  x + tau/2 * k1)
@@ -16,7 +17,7 @@ def rk4_step(f, t, x, tau):
     return x + tau/6 * (k1 + 2*k2 + 2*k3 + k4)
 
 
-def OTF(Y, X0_const, parameters, A, h, t, tau, Noise, rk4, delta, device):
+def OTF_EnKF(Y, X0_const, parameters, A, h, t, tau, Noise, rk4, delta, device):
     """
     On-the-fly optimal transport filter (OTF) for sequential state estimation.
 
@@ -96,7 +97,12 @@ def OTF(Y, X0_const, parameters, A, h, t, tau, Noise, rk4, delta, device):
 
 
     class T_NeuralNet(nn.Module):
-        """Transport map network T(x, y) that pushes forecast particles to the posterior."""
+        """
+        Transport map network T(x, y) that pushes forecast particles to the posterior.
+
+        Uses an internal EnKF correction (x_kf) as a warm start, then refines it
+        through learned residual layers.
+        """
 
         def __init__(self, input_dim, hidden_dim):
             super(T_NeuralNet, self).__init__()
@@ -109,22 +115,38 @@ def OTF(Y, X0_const, parameters, A, h, t, tau, Noise, rk4, delta, device):
             self.layer12     = nn.Linear(self.hidden_dim, self.hidden_dim, bias=True)
             self.layer_out   = nn.Linear(self.hidden_dim, input_dim[0], bias=True)
 
+            # Pre-built observation noise distribution for perturbed observation sampling
+            self.dist = MultivariateNormal(
+                torch.zeros(self.input_dim[1]).to(device),
+                gamma * gamma * torch.eye(self.input_dim[1]).to(device)
+            )
+            self.x_kf = 0  # stores Kalman-corrected state; written on each forward pass for loss access
+
         def forward(self, x, y):
-            X  = self.layer_input(torch.concat((x, y), dim=1))
+            y_hat     = h(x.T).T + self.dist.sample((x.shape[0],))  # perturbed predicted observations, shape (J, dy)
+            self.x_kf = x + (K_kf @ (y - y_hat).T).T                   # EnKF warm start using precomputed Kalman gain K
+
+            X  = self.layer_input(torch.concat((self.x_kf, y), dim=1))
             xy = self.layer11(X)
             xy = self.activation(xy)
             xy = self.layer12(xy)
-            xy = self.layer_out(self.activation(xy) + X)  # residual connection before output
+            xy = self.layer_out(self.activation(xy) + X) + self.x_kf  # residual: correction added on top of x_kf
             return xy
 
 
     # --- Weight Initialization ---
 
     def init_weights(m):
-        """Initialize Linear layer weights with Xavier uniform and biases to 0.001."""
+        """Initialize linear weights with small normal noise and constant bias (used for T)."""
         if isinstance(m, nn.Linear):
-            torch.nn.init.xavier_uniform_(m.weight)
-            # torch.nn.init.xavier_normal_(m.weight)
+            torch.nn.init.normal_(m.weight, 0, 0.001)
+            if m.bias is not None:
+                m.bias.data.fill_(0.001)
+
+    def init_weights_f(m):
+        """Initialize linear weights with orthogonal init and constant bias (used for f)."""
+        if isinstance(m, nn.Linear):
+            torch.nn.init.orthogonal_(m.weight)
             if m.bias is not None:
                 m.bias.data.fill_(0.001)
 
@@ -175,20 +197,20 @@ def OTF(Y, X0_const, parameters, A, h, t, tau, Noise, rk4, delta, device):
             Y_shuffled = Y_train[torch.randperm(Y_train.shape[0])].view(Y_train.shape)  # shuffled Y to break x-y dependence
 
             # Inner loop: update T while holding f fixed
-            for _ in range(inner_iterations):
+            for j in range(inner_iterations):
                 map_T      = T.forward(X_train, Y_shuffled)
                 f_of_map_T = f.forward(map_T, Y_shuffled)
+                x_kf_1     = T.x_kf.detach().clone()  # Kalman state for primary batch, detached
 
                 reg = 0
                 if delta_T != 0:
                     map_T2 = T(X_train2, Y_shuffled)
-                    # Monotonicity regularization: penalize violations of (T(x2)-T(x))*(x2-x) >= 0
-                    reg = nn.functional.elu(
-                        ((map_T2 - map_T) * (-X_train2 + X_train)).sum(axis=1), alpha=0.01
-                    ).mean()
+                    x_kf_2 = T.x_kf.detach()
+                    # Penalize violations of (T(x2)-T(x)) · (x_kf_2-x_kf_1) >= 0 (monotonicity)
+                    reg = nn.functional.elu(((map_T2 - map_T) * (x_kf_1 - x_kf_2)).sum(axis=1), alpha=0.01).mean()
 
                 # T loss: maximize f(T(x)) subject to transport cost and monotonicity penalty
-                loss_T = -f_of_map_T.mean() + 0.5 * ((X_train - map_T) * (X_train - map_T)).sum(axis=1).mean() + delta_T * reg
+                loss_T = -f_of_map_T.mean() + 0.5 * ((x_kf_1 - map_T) * (x_kf_1 - map_T)).sum(axis=1).mean() + delta_T * reg
 
                 optimizer_T.zero_grad()
                 loss_T.backward()
@@ -231,9 +253,10 @@ def OTF(Y, X0_const, parameters, A, h, t, tau, Noise, rk4, delta, device):
                 with torch.no_grad():
                     f_of_xy    = f.forward(X_Train, Y_Train)
                     map_T      = T.forward(X_Train, Y_Train_shuffled)
+                    x_kf_val   = T.x_kf
                     f_of_map_T = f.forward(map_T, Y_Train_shuffled)
                     loss_f     = f_of_xy.mean() - f_of_map_T.mean()
-                    loss       = f_of_xy.mean() - f_of_map_T.mean() + 0.5 * ((X_Train - map_T) * (X_Train - map_T)).sum(axis=1).mean()
+                    loss       = f_of_xy.mean() - f_of_map_T.mean() + 0.5 * ((x_kf_val - map_T) * (x_kf_val - map_T)).sum(axis=1).mean()
                     print("Simu#%d/%d ,Time Step:%d/%d, Iteration: %d/%d, loss = %.4f" % (k + 1, K, ts, Ts - 1, i + 1, iterations, loss.item()))
 
 
@@ -286,8 +309,9 @@ def OTF(Y, X0_const, parameters, A, h, t, tau, Noise, rk4, delta, device):
         convex_f = NeuralNet(INPUT_DIM, NUM_NEURON_f).to(device)
         MAP_T    = T_NeuralNet(INPUT_DIM, NUM_NEURON_T).to(device)
 
-        convex_f.apply(init_weights)
+        convex_f.apply(init_weights_f)
         MAP_T.apply(init_weights)
+        torch.nn.init.orthogonal_(MAP_T.layer_input.weight)  # override input layer of T with orthogonal init
 
         X0 = X0_const[k,].T              # initial ensemble for simulation k, shape (SAMPLE_SIZE, L)
         X1 = np.zeros((SAMPLE_SIZE, L))  # forecast ensemble placeholder
@@ -316,6 +340,18 @@ def OTF(Y, X0_const, parameters, A, h, t, tau, Noise, rk4, delta, device):
             # Convert forecast ensemble to float32 tensors on device
             X1_train = torch.from_numpy(X1).to(torch.float32).to(device)
             Y1_train = torch.from_numpy(Y1).to(torch.float32).to(device)
+
+            # --- Kalman Gain (warm start for T) ---
+            m_hat = X1_train.mean(axis=0, keepdims=True)  # ensemble mean state,       shape (1, L)
+            o_hat = Y1_train.mean(axis=0, keepdims=True)  # ensemble mean observation, shape (1, dy)
+
+            a = X1_train - m_hat  # state anomalies,       shape (SAMPLE_SIZE, L)
+            b = Y1_train - o_hat  # observation anomalies, shape (SAMPLE_SIZE, dy)
+
+            C_xy = 1 / X1_train.shape[0] * a.T @ b  # state-observation cross-covariance, shape (L, dy)
+            C_yy = 1 / X1_train.shape[0] * b.T @ b  # observation error covariance,       shape (dy, dy)
+
+            K_kf = C_xy @ torch.linalg.inv(C_yy + torch.eye(dy, device=device) * 1e-6)  # Kalman gain with Tikhonov regularization
 
             # Train f and T on the current forecast ensemble
             train(convex_f, MAP_T, X1_train, Y1_train, ITERS, LR_f, LR_T, inner_iterations, i + 1, N, BATCH_SIZE, k, AVG_SIM)
