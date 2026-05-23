@@ -6,19 +6,27 @@ import numpy as np
 import time
 
 
-def EnKF(Y, X0, A, h, t, tau, Noise, Odeint):
+def rk4_step(f, t, x, tau):
+    k1 = f(t,         x)
+    k2 = f(t + tau/2, x + tau/2 * k1)
+    k3 = f(t + tau/2, x + tau/2 * k2)
+    k4 = f(t + tau,   x + tau   * k3)
+    return x + tau/6 * (k1 + 2*k2 + 2*k3 + k4)
+
+
+def EnKF(Y, X0, A, h, t, tau, Noise, rk4):
     """
     Run the Ensemble Kalman Filter (EnKF).
 
     Args:
-        Y      (ndarray): observations, shape (AVG_SIM, N, dy)
-        X0     (ndarray): initial particle ensembles, shape (AVG_SIM, L, J)
-        A      (callable): state transition function A(x, t) returning dx/dt
-        h      (callable): observation function mapping state to observation space
-        t      (ndarray): time grid of length N
-        tau    (float): time step size
-        Noise  (list): [noise, sigmma, sigmma0, gamma, x0_amp]
-        Odeint (bool): unused flag for ODE integration method
+        Y     (ndarray): observations, shape (AVG_SIM, N, dy)
+        X0    (ndarray): initial particle ensembles, shape (AVG_SIM, L, J)
+        A     (callable): state transition function A(t, x) returning dx/dt
+        h     (callable): observation function mapping state to observation space
+        t     (ndarray): time grid of length N
+        tau   (float): time step size
+        Noise (list): [noise, sigmma, sigmma0, gamma, x0_amp]
+        rk4   (bool): if True use RK4 integration, else use Euler
 
     Returns:
         ndarray: filtered ensemble, shape (AVG_SIM, N, L, J)
@@ -48,7 +56,10 @@ def EnKF(Y, X0, A, h, t, tau, Noise, Odeint):
 
             # --- Forecast step ---
             sai_EnKF  = np.random.multivariate_normal(np.zeros(L), sigmma*sigmma * np.eye(L), J)    # (J, L) process noise
-            x_hatEnKF = x_EnKF[i,] + tau*A(x_EnKF[i,].T, t[i]).T + sai_EnKF                        # (J, L) propagated ensemble
+            if rk4:
+                x_hatEnKF = rk4_step(A, t[i], x_EnKF[i,].T, tau).T + sai_EnKF                      # (J, L) propagated ensemble
+            else:
+                x_hatEnKF = x_EnKF[i,] + tau*A(t[i], x_EnKF[i,].T).T + sai_EnKF                   # (J, L) propagated ensemble
 
             eta_EnKF  = np.random.multivariate_normal(np.zeros(dy), gamma*gamma * np.eye(dy), J)    # (J, dy) observation noise
             y_hatEnKF = h(x_hatEnKF.T).T + eta_EnKF                                                 # (J, dy) predicted observations

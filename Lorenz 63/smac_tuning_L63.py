@@ -46,7 +46,7 @@ sigmma0 = noise ** 2       # variance of the initial state distribution
 gamma   = noise / 1        # observation noise std
 x0_amp  = 1                # initial state amplitude scaling factor
 Noise   = [sigmma, gamma]  # packed noise vector passed to filters
-Odeint  = False            # use Euler integration (False) rather than odeint
+rk4     = False            # use RK4 fixed-step integration
 
 t = np.arange(0.0, tau * N, tau)  # time grid
 
@@ -58,14 +58,22 @@ def h(x):
     return x[2, ].reshape(dy, -1)
 
 
-def L63(x, _t):
-    """Evaluate the Lorenz 63 vector field at state x."""
+def L63(t, x):
+    """Evaluate the Lorenz 63 vector field at state x and time t."""
     d            = np.zeros_like(x)  # output derivative vector
     sigma, r, b  = 10, 28, 8 / 3    # standard L63 coefficients
     d[0] = sigma * (x[1] - x[0])
     d[1] = x[0] * (r - x[2]) - x[1]
     d[2] = x[0] * x[1] - b * x[2]
     return d
+
+
+def rk4_step(f, t, x, tau):
+    k1 = f(t,         x)
+    k2 = f(t + tau/2, x + tau/2 * k1)
+    k3 = f(t + tau/2, x + tau/2 * k2)
+    k4 = f(t + tau,   x + tau   * k3)
+    return x + tau/6 * (k1 + 2*k2 + 2*k3 + k4)
 
 
 # --- Data Generation ---
@@ -85,7 +93,10 @@ def gen_data():
     x[0] = 5 + np.random.multivariate_normal(np.zeros(L_state), np.eye(L_state), 1) # perturbed initial condition
 
     for i in range(N - 1):
-        x[i + 1] = x[i] + L63(x[i], t[i]) * tau
+        if rk4:
+            x[i + 1] = rk4_step(L63, t[i], x[i], tau)
+        else:
+            x[i + 1] = x[i] + L63(t[i], x[i]) * tau
         y[i + 1]  = h(x[i + 1]) + eta[i + 1]
 
     Y_True = y[np.newaxis]  # (1, N, dy)
@@ -207,9 +218,9 @@ def target_fun(config, seed: int = 0) -> float:
 
             Y_True, X0_ot, X0_sir = gen_data()
 
-            X_sir_ref = SIR(Y_True, X0_sir, L63, h, t, tau, Noise, Odeint)
+            X_sir_ref = SIR(Y_True, X0_sir, L63, h, t, tau, Noise, rk4)
             X_filt    = OTF(Y_True, X0_ot, parameters, L63, h,
-                            t, tau, Noise, Odeint, delta, local_device)
+                            t, tau, Noise, rk4, delta, local_device)
             sim_w2    = w2_vs_sir(X_filt, X_sir_ref)  # W2 for this simulation run
             total_w2 += sim_w2
             print(

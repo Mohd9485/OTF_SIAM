@@ -13,7 +13,15 @@ from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from scipy.integrate import odeint
 
 
-def OTF(Y, X0_C, parameters, A, h, t, tau, Noise, Odeint, delta, device):
+def rk4_step(f, t, x, tau):
+    k1 = f(t,         x)
+    k2 = f(t + tau/2, x + tau/2 * k1)
+    k3 = f(t + tau/2, x + tau/2 * k2)
+    k4 = f(t + tau,   x + tau   * k3)
+    return x + tau/6 * (k1 + 2*k2 + 2*k3 + k4)
+
+
+def OTF(Y, X0_C, parameters, A, h, t, tau, Noise, rk4, delta, device):
     """
     Run the Optimal Transport Filter (OTF).
 
@@ -21,12 +29,12 @@ def OTF(Y, X0_C, parameters, A, h, t, tau, Noise, Odeint, delta, device):
         Y          (ndarray):  observations, shape (AVG_SIM, N, dy)
         X0_C       (ndarray):  initial particle ensembles, shape (AVG_SIM, L, J)
         parameters (dict):     network and training hyperparameters from get_params()
-        A          (callable): state transition function A(x, t) returning dx/dt
+        A          (callable): state transition function A(t, x) returning dx/dt
         h          (callable): observation function mapping state to observation space
         t          (ndarray):  time grid of length N
         tau        (float):    time step size
         Noise      (list):     [noise, sigmma, sigmma0, gamma, x0_amp]
-        Odeint     (bool):     if True use odeint for propagation, else use Euler
+        rk4        (bool):     if True use RK4 integration, else use Euler
         delta      (list):     regularization weights [delta_T, delta_f]
         device:                torch device for network computations
 
@@ -180,7 +188,7 @@ def OTF(Y, X0_C, parameters, A, h, t, tau, Noise, Odeint, delta, device):
             map_T      = T.forward(X_train, Y_shuffled)
             f_of_map_T = f.forward(map_T, Y_shuffled)
 
-            # Optional Hessian regularization to promote c-concavity of f
+            # Optional Hessian regularization to promote convexity of f
             reg2 = 0
             if delta_f != 0:
                 K_hessian = batch_size  # number of particles used to estimate the Hessian
@@ -280,11 +288,10 @@ def OTF(Y, X0_C, parameters, A, h, t, tau, Noise, Odeint, delta, device):
 
             # --- Propagate particles ---
             sai_train = np.random.multivariate_normal(np.zeros(L), sigmma*sigmma * np.eye(L), J)  # (J, L) process noise
-            if Odeint:
-                sai_train = sai_train.T
-                X1 = ((odeint(A, (X0.T).reshape(-1), t[i:i+2])[1,]).reshape(L, J) + sai_train).T
+            if rk4:
+                X1 = rk4_step(A, t[i], X0.T, tau).T + sai_train
             else:
-                X1 = X0 + (((A(X0.T, t[i]).T) * tau) + sai_train)
+                X1 = X0 + (A(t[i], X0.T).T * tau + sai_train)
 
             eta_train = np.random.multivariate_normal(np.zeros(dy), gamma*gamma * np.eye(dy), J)  # (J, dy) observation noise
             Y1        = np.array(h(X1.T).T + eta_train)                                           # (J, dy) predicted observations

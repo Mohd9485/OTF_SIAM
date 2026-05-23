@@ -62,7 +62,7 @@ def h(x):
     """Map the full state vector to the observed component."""
     return x[2,].reshape(dy, -1)
 
-def L63(x, t):
+def L63(t, x):
     """Evaluate the Lorenz 63 vector field at state x and time t."""
     d     = np.zeros_like(x)  # output derivative vector
     sigma = 10                 # standard L63 coefficient
@@ -73,6 +73,19 @@ def L63(x, t):
     d[1] = x[0]*(r - x[2]) - x[1]
     d[2] = x[0]*x[1] - b*x[2]
     return d
+
+
+def rk4_step(f, t, x, tau):
+    k1 = f(t,         x)
+    k2 = f(t + tau/2, x + tau/2 * k1)
+    k3 = f(t + tau/2, x + tau/2 * k2)
+    k4 = f(t + tau,   x + tau   * k3)
+    return x + tau/6 * (k1 + 2*k2 + 2*k3 + k4)
+
+
+def _timed(func, *args):
+    t0 = time.time()
+    return func(*args), time.time() - t0
 
 
 # --- Data Generation ---
@@ -94,7 +107,10 @@ def Gen_True_Data(L, dy, N, x0_amp, sigmma0, sigmma, gamma, tau):
     x[0,] = x0
 
     for i in range(N-1):
-        x[i+1,:] = x[i,:] + L63(x[i,:], t[i])*tau
+        if rk4:
+            x[i+1,:] = rk4_step(L63, t[i], x[i,:], tau)
+        else:
+            x[i+1,:] = x[i,:] + L63(t[i], x[i,:]) * tau
         y[i+1,]  = h(x[i+1,]) + eta[i+1,]
 
     return x, y
@@ -151,7 +167,7 @@ sigmma0 = noise**2      # variance of the initial state distribution
 gamma   = noise/1       # observation noise std
 x0_amp  = 1             # initial state amplitude scaling factor
 Noise   = [sigmma, gamma]  # packed noise vector passed to filters
-Odeint  = False         # use Euler integration (False) rather than odeint
+rk4     = True         # use RK4 fixed-step integration
 
 delta   = [0.1, 0.1]   # OTF regularization weights [lambda_T, lambda_f]
 J       = int(1000/4)  # EnKF ensemble size
@@ -180,52 +196,27 @@ for k in range(AVG_SIM):
 # --- Run Filters ---
 
 # data shape: AVG_SIM x N x L x J
-total_start = time.time()
-X_EnKF      = EnKF(Y_True, X0, L63, h, t, tau, Noise, Odeint)
-X_SIR       = SIR(Y_True, X0, L63, h, t, tau, Noise, Odeint)
-with ThreadPoolExecutor(max_workers=3) as executor:
-    future_reg = executor.submit(OTF, Y_True, X0, parameters, L63, h, t, tau, Noise, Odeint, delta,  device1)
-    future_ot  = executor.submit(OTF, Y_True, X0, parameters, L63, h, t, tau, Noise, Odeint, [0, 0], device2)
-    X_OT_reg   = future_reg.result()
-    X_OT       = future_ot.result()
-print(f"--- Total time (all methods): {time.time() - total_start:.2f} seconds ---")
+X_EnKF, time_EnKF = _timed(EnKF, Y_True, X0, L63, h, t, tau, Noise, rk4)
+X_SIR,  time_SIR  = _timed(SIR,  Y_True, X0, L63, h, t, tau, Noise, rk4)
+with ThreadPoolExecutor(max_workers=2) as executor:
+    future_otf_reg = executor.submit(_timed, OTF, Y_True, X0, parameters, L63, h, t, tau, Noise, rk4, delta,  device1)
+    future_otf     = executor.submit(_timed, OTF, Y_True, X0, parameters, L63, h, t, tau, Noise, rk4, [0, 0], device2)
+    X_OTF_reg, time_OTF_reg = future_otf_reg.result()
+    X_OTF,     time_OTF     = future_otf.result()
 
+print(f"EnKF        time: {time_EnKF:.2f}s")
+print(f"SIR         time: {time_SIR:.2f}s")
+print(f"OTF (λ=0)   time: {time_OTF:.2f}s")
+print(f"OTF (λ=0.1) time: {time_OTF_reg:.2f}s")
 
-# # --- Plot Results ---
-
-# p              = 100  # number of particles to plot per method
-# num_plot_state = 1    # state index to visualize
-# l              = 0    # simulation index to visualize
-
-# plt.figure(figsize=(15, 10))
-
-# plt.subplot(5, 1, 1)
-# plt.plot(t, X_EnKF[l,:,num_plot_state,:p], 'g', ls='none', marker='o', ms=4, alpha=0.1)
-# plt.plot(t, X_True[l,:,num_plot_state], 'k--', label='True state')
-# plt.ylabel('EnKF')
-# plt.legend()
-
-# plt.subplot(5, 1, 2)
-# plt.plot(t, X_SIR[l,:,num_plot_state,:p], 'b', ls='none', marker='o', ms=4, alpha=0.1)
-# plt.plot(t, X_True[l,:,num_plot_state], 'k--')
-# plt.ylabel('SIR')
-
-# plt.subplot(5, 1, 3)
-# plt.plot(t, X_OT[l,:,num_plot_state,:p], 'r', ls='none', marker='o', ms=4, alpha=0.1)
-# plt.plot(t, X_True[l,:,num_plot_state], 'k--')
-# plt.ylabel('OT')
-
-# plt.subplot(5, 1, 4)
-# plt.plot(t, X_OT_reg[l,:,num_plot_state,:p], 'm', ls='none', marker='o', ms=4, alpha=0.1)
-# plt.plot(t, X_True[l,:,num_plot_state], 'k--')
-# plt.ylabel('OT_reg')
-# plt.xlabel('time')
-
-# plt.savefig(f'L63_EnKF_SIR_OT_OTreg_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png', dpi=300)
 
 
 # --- Save Data ---
 
-np.savez('DATA_file_L63.npz',
-    randint=randint, t=t, Noise=Noise, tau=tau, Odeint=Odeint, sigmma0=sigmma0,
-    X0=X0, Y_true=Y_True, X_true=X_True, X_OT=X_OT, X_OT_reg=X_OT_reg)
+np.savez_compressed('DATA_file_L63.npz',
+    randint=randint, t=t, Noise=Noise, tau=tau, rk4=rk4, sigmma0=sigmma0,
+    X0=X0, Y_true=Y_True, X_true=X_True,
+    X_EnKF=X_EnKF, time_EnKF=time_EnKF,
+    X_SIR=X_SIR,   time_SIR=time_SIR,
+    X_OTF=X_OTF,         time_OTF=time_OTF,
+    X_OTF_reg=X_OTF_reg, time_OTF_reg=time_OTF_reg)

@@ -6,19 +6,27 @@ import numpy as np
 import time
 
 
-def SIR(Y, X0, A, h, t, tau, Noise, Odeint):
+def rk4_step(f, t, x, tau):
+    k1 = f(t,         x)
+    k2 = f(t + tau/2, x + tau/2 * k1)
+    k3 = f(t + tau/2, x + tau/2 * k2)
+    k4 = f(t + tau,   x + tau   * k3)
+    return x + tau/6 * (k1 + 2*k2 + 2*k3 + k4)
+
+
+def SIR(Y, X0, A, h, t, tau, Noise, rk4):
     """
     Run the Sequential Importance Resampling (SIR) particle filter.
 
     Args:
-        Y      (ndarray): observations, shape (AVG_SIM, N, dy)
-        X0     (ndarray): initial particle ensembles, shape (AVG_SIM, L, J)
-        A      (callable): state transition function A(x, t) returning dx/dt
-        h      (callable): observation function mapping state to observation space
-        t      (ndarray): time grid of length N
-        tau    (float): time step size
-        Noise  (list): [noise, sigmma, sigmma0, gamma, x0_amp]
-        Odeint (bool): unused flag for ODE integration method
+        Y     (ndarray): observations, shape (AVG_SIM, N, dy)
+        X0    (ndarray): initial particle ensembles, shape (AVG_SIM, L, J)
+        A     (callable): state transition function A(t, x) returning dx/dt
+        h     (callable): observation function mapping state to observation space
+        t     (ndarray): time grid of length N
+        tau   (float): time step size
+        Noise (list): [noise, sigmma, sigmma0, gamma, x0_amp]
+        rk4   (bool): if True use RK4 integration, else use Euler
 
     Returns:
         ndarray: filtered particle ensemble, shape (AVG_SIM, N, L, J)
@@ -44,7 +52,10 @@ def SIR(Y, X0, A, h, t, tau, Noise, Odeint):
         for i in range(N-1):
             # --- Propagate particles ---
             sai_SIR       = np.random.multivariate_normal(np.zeros(L), sigmma*sigmma * np.eye(L), J).transpose()  # (L, J) process noise
-            x_SIR[k, i+1,] = x_SIR[k, i,] + A(x_SIR[k, i,], t[i])*tau + sai_SIR
+            if rk4:
+                x_SIR[k, i+1,] = rk4_step(A, t[i], x_SIR[k, i,], tau) + sai_SIR
+            else:
+                x_SIR[k, i+1,] = x_SIR[k, i,] + A(t[i], x_SIR[k, i,])*tau + sai_SIR
 
             # --- Compute and normalize importance weights ---
             W = np.sum((y[i+1,] - h(x_SIR[k, i+1,]).T) * (y[i+1] - h(x_SIR[k, i+1,]).T), axis=1) / (2*gamma*gamma)
