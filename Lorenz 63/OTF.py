@@ -180,7 +180,7 @@ def OTF(Y, X0_C, parameters, A, h, t, tau, Noise, Odeint, delta, device):
             map_T      = T.forward(X_train, Y_shuffled)
             f_of_map_T = f.forward(map_T, Y_shuffled)
 
-            # Optional Hessian regularization to promote convexity of f
+            # Optional Hessian regularization to promote c-concavity of f
             reg2 = 0
             if delta_f != 0:
                 K_hessian = batch_size  # number of particles used to estimate the Hessian
