@@ -211,7 +211,7 @@ _cache = {}
 def _load_data():
     """Load training data and reference posterior from disk, caching after first read."""
     if not _cache:
-        data = np.load(_SHARED_DATA_FILE)
+        data = dict(np.load(_SHARED_DATA_FILE))
         _cache['X_true'] = data['X_true']
         _cache['x_data'] = torch.tensor(data['x_data']).to(device)
         _cache['y_data'] = torch.tensor(data['y_data']).to(device)

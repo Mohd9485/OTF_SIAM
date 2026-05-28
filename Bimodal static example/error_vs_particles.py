@@ -2,6 +2,7 @@
 @author: Mohammad Al-Jarrah
 """
 
+import os
 import subprocess
 import pickle
 import time
@@ -222,20 +223,21 @@ def w2_distance(x, y):
 
 
 # --- Fixed settings ---
-N       = 5000            # number of training samples per run
-AVG_SIM = 10              # number of independent runs to average W2 over
-sigma   = np.sqrt(1e-2)   # observation noise standard deviation
+d         = 10              # state dimension, change this to 2 or 10 to generate the two panels of Figure 4
+dy        = d              # observation dimension (matches state dimension)
+INPUT_DIM = [d, dy]        # input dimensions for both networks: [state dim, observation dim]
+AVG_SIM   = 10             # number of independent runs to average W2 over
+sigma     = np.sqrt(1e-2)  # observation noise standard deviation
 
-# Dimensions must match tuned parameters in param.py
-D      = [2, 4, 6, 8, 10, 15, 20, 30, 40, 50]  # state/observation dimensions to sweep
-Lambda = [0, 0.01, 0.1]                          # regularization strengths to compare
+NN     = [100, 500, 1000, 5000, 10000, 20000, 50000, 100000, 500000]  # particle counts to sweep
+Lambda = [0, 0.01, 0.1]                                                          # regularization strengths to compare
 
 # Compute SIR reference samples for W2 evaluation (ground truth posterior samples)
 rng    = np.random.default_rng(0)
 y_true = 1         # observed value at which to evaluate the posterior
 N_true = int(1e5)  # number of reference samples for ground truth posterior
-X_true = np.zeros((N_true, max(D)))
-for j in range(max(D)):
+X_true = np.zeros((N_true, d))
+for j in range(d):
     x_SIR = np.random.multivariate_normal(np.zeros(1), np.eye(1), N_true).T
     W = np.sum((y_true - h(x_SIR).T) ** 2, axis=1) / (2 * sigma * sigma)
     W = np.exp(-(W - np.min(W)))
@@ -244,20 +246,17 @@ for j in range(max(D)):
     X_true[:, j] = x_SIR[:, index].reshape(N_true)
 
 # Storage for W2 distances and timing
-distance_ot = {str(l): [] for l in Lambda}
-x_otf       = {str(l): {} for l in Lambda}
-time_save   = {str(l): [] for l in Lambda}
+distance_ot   = {str(l): [] for l in Lambda}
+x_otf         = {str(l): {} for l in Lambda}
+time_save_otf = {str(l): [] for l in Lambda}
 
-# --- OTF training loop over dimensions and regularization weights ---
-for dim in D:
-    d  = dim
-    dy = dim
-    INPUT_DIM = [d, dy]
-
-    # Load SMAC-tuned hyperparameters for this dimension
+# --- OTF training loop over particle counts and regularization weights ---
+for N in NN:
+    # Load tuned hyperparameters for this particle count
     NUM_NEURON_f, NUM_NEURON_T, NUM_RESBLOCKS_f, NUM_RESBLOCKS_T, \
     BATCH_SIZE, ITERS, LR_f, LR_T, K_in, ITER_0 = get_param()
-
+    BATCH_SIZE = min(BATCH_SIZE, N)
+  
     dist_normal = MultivariateNormal(torch.zeros(d), torch.eye(d))
     dist        = MultivariateNormal(torch.zeros(dy), sigma * sigma * torch.eye(dy))
 
@@ -265,7 +264,7 @@ for dim in D:
     y = h(x) + dist.sample((N,)).to(device)
 
     for lamda in Lambda:
-        print('dim = ', dim, ', lambda = ', lamda)
+        print('N = ', N, ', lambda = ', lamda)
         Delta_T = lamda
         Delta_f = lamda
 
@@ -284,16 +283,17 @@ for dim in D:
             track_time += (time.time() - start_time)
             print("--- OT time : %s seconds ---" % (time.time() - start_time))
 
-            # Compute W2 as sum of marginal W2 distances (matches smac evaluation)
+            # Compute W2 as average of per-dimension marginal W2 distances
             p_true = int(1e3)
+            p_eval = min(p_true, N)
             sim_w2 = 0.0
             for j in range(d):
-                sim_w2 += w2_distance(X_true[:p_true, j:j+1], x_transported[:p_true, j:j+1])
+                sim_w2 += w2_distance(X_true[:p_eval, j:j+1], x_transported[:p_eval, j:j+1])
             w2 += sim_w2 / d
+            x_otf[str(lamda)][str(N) + '_' + str(k)] = x_transported
 
         distance_ot[str(lamda)].append(w2 / AVG_SIM)
-        x_otf[str(lamda)][str(dim) + '_' + str(k)] = x_transported
-        time_save[str(lamda)].append(track_time / AVG_SIM)
+        time_save_otf[str(lamda)].append(track_time / AVG_SIM)
 
 # --- SIR and EnKF baselines ---
 X_SIR  = {}
@@ -303,17 +303,14 @@ distance_enkf       = []
 y_save              = {}
 time_save_baselines = {'sir': [], 'enkf': []}
 
-for dim in D:
-    print("dim = : ", dim)
-    d  = dim
-    dy = dim
-
+for N in NN:
+    print('N = ', N)
     dist_normal = MultivariateNormal(torch.zeros(d), torch.eye(d))
     dist        = MultivariateNormal(torch.zeros(dy), sigma * sigma * torch.eye(dy))
 
     x = dist_normal.sample((N,))
     y = h(x) + dist.sample((N,))
-    y_save[str(dim)] = y
+    y_save[str(N)] = y
 
     w2_sir  = 0
     w2_enkf = 0
@@ -323,12 +320,12 @@ for dim in D:
     for k in range(AVG_SIM):
         # SIR: sequential importance resampling
         start_time = time.time()
-        x_SIR = np.random.multivariate_normal(np.zeros(dim), np.eye(dim), N).T
+        x_SIR = np.random.multivariate_normal(np.zeros(d), np.eye(d), N).T
         W = np.sum((y_true - h(x_SIR).T) ** 2, axis=1) / (2 * sigma * sigma)
         W = np.exp(-(W - np.min(W)))
         W = W / np.sum(W)
         index = rng.choice(np.arange(N), N, p=W)
-        X_SIR[str(dim) + '_' + str(k)] = x_SIR[:, index].T
+        X_SIR[str(N) + '_' + str(k)] = x_SIR[:, index].T
         track_time_sir += (time.time() - start_time)
         print("--- SIR time : %s seconds ---" % (time.time() - start_time))
 
@@ -343,19 +340,20 @@ for dim in D:
         C_xy   = (a_cov.T @ b_cov) / N
         C_yy   = (b_cov.T @ b_cov) / N
         K_EnKF = C_xy @ np.linalg.inv(C_yy + np.eye(dy) * 1e-4)
-        X_EnKF[str(dim) + '_' + str(k)] = x_hatEnKF + (y_true - y_hatEnKF) @ K_EnKF.T
+        X_EnKF[str(N) + '_' + str(k)] = x_hatEnKF + (y_true - y_hatEnKF) @ K_EnKF.T
         track_time_enkf += (time.time() - start_time)
         print("--- EnKF time : %s seconds ---" % (time.time() - start_time))
 
-        # Compute W2 as sum of marginal W2 distances
+        # Compute W2 as average of per-dimension marginal W2 distances
         p_true  = int(1e3)
+        p_eval  = min(p_true, N)
         sir_w2  = 0.0
         enkf_w2 = 0.0
-        for j in range(dim):
-            sir_w2  += w2_distance(X_true[:p_true, j:j+1], X_SIR[str(dim)  + '_' + str(k)][:p_true, j:j+1])
-            enkf_w2 += w2_distance(X_true[:p_true, j:j+1], X_EnKF[str(dim) + '_' + str(k)][:p_true, j:j+1])
-        w2_sir  += sir_w2  / dim
-        w2_enkf += enkf_w2 / dim
+        for j in range(d):
+            sir_w2  += w2_distance(X_true[:p_eval, j:j+1], X_SIR[str(N)  + '_' + str(k)][:p_eval, j:j+1])
+            enkf_w2 += w2_distance(X_true[:p_eval, j:j+1], X_EnKF[str(N) + '_' + str(k)][:p_eval, j:j+1])
+        w2_sir  += sir_w2  / d
+        w2_enkf += enkf_w2 / d
 
     distance_sir.append(w2_sir / AVG_SIM)
     distance_enkf.append(w2_enkf / AVG_SIM)
@@ -368,66 +366,51 @@ lambda_styles = {
     Lambda[2]: {'color': 'red',   'ls': '-.',  'marker': 'o'},
 }
 
-# --- Plot W2 vs dimension and computational time vs dimension ---
-fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-
-# Subplot 1: W2 distance vs dimension
-ax = axes[0]
+# --- Plot W2 vs number of particles ---
+plt.figure(figsize=(12, 6))
 for lamda in Lambda:
     s = lambda_styles[lamda]
-    ax.semilogy(D, distance_ot[str(lamda)], marker=s['marker'], linestyle=s['ls'],
-                color=s['color'], label=rf'$OT_{{(\lambda={lamda})}}$', lw=2)
-ax.semilogy(D, distance_enkf, 'D:', color="C4", label=r"EnKF", lw=2.5)
-ax.semilogy(D, distance_sir,  '^:', color="C5", label=r"SIR",  lw=2.5)
-ax.set_xlabel(r'$dim$', fontsize=fontsize)
-ax.set_ylabel(r'$W_2$', fontsize=fontsize)
-ax.legend(fontsize=fontsize)
+    plt.loglog(NN, distance_ot[str(lamda)], marker=s['marker'], linestyle=s['ls'],
+               color=s['color'], label=rf'$OTF_{{(\lambda={lamda})}}$', lw=2)
 
-# Subplot 2: computational time vs dimension
-ax = axes[1]
-for lamda in Lambda:
-    s = lambda_styles[lamda]
-    ax.semilogy(D, time_save[str(lamda)], marker=s['marker'], linestyle=s['ls'],
-                color=s['color'], label=rf'$OT_{{(\lambda={lamda})}}$', lw=2)
-ax.semilogy(D, time_save_baselines['enkf'], 'D:', color="C4", label=r"EnKF", lw=2.5)
-ax.semilogy(D, time_save_baselines['sir'],  '^:', color="C5", label=r"SIR",  lw=2.5)
-ax.set_xlabel(r'$dim$', fontsize=fontsize)
-ax.set_ylabel(r'computational time', fontsize=fontsize)
-ax.legend(fontsize=fontsize)
-
+plt.loglog(NN, distance_enkf, 'D:', color="C1", label=r"EnKF", lw=2.5)
+plt.loglog(NN, distance_sir,  '^:', color="C2", label=r"SIR",  lw=2.5)
+plt.xlabel(r'# of particles', fontsize=fontsize)
+plt.ylabel(r'$\mathrm{AA\text{-}SW}_2$', fontsize=fontsize)
+plt.legend(fontsize=fontsize)
 plt.tight_layout()
-plt.savefig('Figure_2_W2_vs_dim.pdf', bbox_inches='tight')
-plt.show()
+plt.savefig(f'error_vs_particles_for_dim_{d}.pdf', bbox_inches='tight')
+
 
 # --- Save all data needed to regenerate plots and particles ---
-# timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-# save_data = {
-#     # Metadata
-#     'seed':    seed,
-#     'D':       D,
-#     'Lambda':  Lambda,
-#     'N':       N,
-#     'AVG_SIM': AVG_SIM,
-#     'sigma':   sigma,
-#     'y_true':  y_true,
-#     # Ground truth (SIR reference)
-#     'X_true': X_true,
-#     # OTF results
-#     'distance_ot':   distance_ot,
-#     'x_otf':         x_otf,
-#     'time_save_otf': time_save,
-#     # Baseline particles
-#     'X_SIR':   X_SIR,
-#     'X_EnKF':  X_EnKF,
-#     # Baseline W2 distances
-#     'distance_sir':  distance_sir,
-#     'distance_enkf': distance_enkf,
-#     # Baseline timings
-#     'time_save_baselines': time_save_baselines,
-#     # Observations used for baselines
-#     'y_save': y_save,
-# }
-# save_path = f'Figure_2_data_{timestamp}.pkl'
-# with open(save_path, 'wb') as f:
-#     pickle.dump(save_data, f)
-# print(f"Data saved to {save_path}")
+save_data = {
+    # Metadata
+    'seed':    seed,
+    'NN':      NN,
+    'Lambda':  Lambda,
+    'd':       d,
+    'AVG_SIM': AVG_SIM,
+    'sigma':   sigma,
+    'y_true':  y_true,
+    # Ground truth (SIR reference)
+    'X_true': X_true,
+    # OTF results
+    'distance_ot':   distance_ot,
+    'x_otf':         x_otf,
+    'time_save_otf': time_save_otf,
+    # Baseline particles
+    'X_SIR':   X_SIR,
+    'X_EnKF':  X_EnKF,
+    # Baseline W2 distances
+    'distance_sir':  distance_sir,
+    'distance_enkf': distance_enkf,
+    # Baseline timings
+    'time_save_baselines': time_save_baselines,
+    # Observations used for baselines
+    'y_save': y_save,
+}
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+pkl_path = f'error_vs_particles_d_{d}.pkl'
+with open(pkl_path, 'wb') as fout:
+    pickle.dump(save_data, fout)
+print(f"Data saved to {pkl_path}")

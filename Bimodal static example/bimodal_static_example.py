@@ -2,7 +2,6 @@
 @author: Mohammad Al-Jarrah
 """
 
-import os
 import subprocess
 import time
 from datetime import datetime
@@ -20,11 +19,12 @@ from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 plt.close('all')
 plt.rc('font', size=13)
 matplotlib.rcParams['pdf.fonttype'] = 42
-matplotlib.rcParams['ps.fonttype'] = 42
-fontsize = 19
+matplotlib.rcParams['ps.fonttype']  = 42
+fontsize  = 19
+labeling  = True  # set False to hide all axis labels
 
 # --- Reproducibility ---
-seed = np.random.randint(0, 10000)
+seed = np.random.randint(0, 10000) # 5333
 print(f"Random seed: {seed}")
 torch.manual_seed(seed=seed)
 np.random.seed(seed=seed)
@@ -243,7 +243,7 @@ f_x_y_1       = sum_matrix @ (F_inv_of_F_px * dx)
 T_exact        = np.interp(F_pxy, F_px, xx)
 
 # --- Train for each regularization strength lambda ---
-Lambda  = [0, 0.01, 0.1]
+Lambda  = [0, 0.01, 0.1, 1.0]  # regularization strengths to compare (0 = no regularization)
 results = {}
 
 for lamda in Lambda:
@@ -279,45 +279,50 @@ bw       = 1.0 / 5  # KDE bandwidth multiplier: < 1 sharper, > 1 smoother
 plt.figure(figsize=(24, 8))
 
 lambda_styles = {
-    Lambda[0]: ('blue',  '--'),
-    Lambda[1]: ('green', '-.'),
-    Lambda[2]: ('red',   '-.'),
+    Lambda[0]: ('C3', '--'),
+    Lambda[1]: ('C9', (0, (3, 1, 1, 1))),
+    Lambda[2]: ('C4', '-.'),
+    Lambda[3]: ('C10', (0, (5, 1))),
 }
 
 # Subplot 1: transported density vs exact posterior
 plt.subplot(1, 3, 1)
-plt.plot(xx, pxy, color='k', label=r"$P_{U|Y=1}$", lw=2)
+plt.plot(xx, pxy, color='k', label=r"$P_{U|Y=1}$", lw=2.5)
 for lamda, res in results.items():
     color, ls = lambda_styles[lamda]
-    plt.hist(res['x_transported'][:, 0], bins=50, density=True, alpha=0.25, color=color)
+    plt.hist(res['x_transported'][:, 0], bins=50, density=True, alpha=0.35, color=color,
+             rasterized=True)
     sns.kdeplot(data=res['x_transported'][:, 0], color=color, linestyle=ls,
-                label=rf'$OT_{{(\lambda={lamda})}}$', lw=2, bw_adjust=bw)
-plt.xlabel('U', fontsize=fontsize)
-plt.ylabel('Density', fontsize=fontsize)
-plt.legend(loc=0, fontsize=fontsize)
+                label=rf'$OTF_{{(\lambda={lamda})}}$', lw=2.5, bw_adjust=bw)
+if labeling: plt.xlabel('U', fontsize=fontsize)
+if labeling: plt.ylabel('Density', fontsize=fontsize)
+else:        plt.ylabel('')
+plt.xlim(-3, 3)
+plt.legend(loc='upper center', fontsize=fontsize)
 
 # Subplot 2: learned Kantorovich potential 0.5|u|^2 - f(u, y=1)
 plt.subplot(1, 3, 2)
-plt.plot(xx, f_x_y_1 - f_x_y_1.mean(), 'k-', lw=2)
+plt.plot(xx, f_x_y_1 - f_x_y_1.mean(), 'k-', lw=2.5)
 for lamda, res in results.items():
     color, ls = lambda_styles[lamda]
     potential = 0.5 * xx * xx - res['f_plot']
     potential -= potential.mean()
-    plt.plot(xx, potential, color=color, linestyle=ls, lw=2)
-plt.xlabel('U', fontsize=fontsize)
-plt.ylabel(r'$0.5\|U\|^2 - \phi(Y=1,U)$', fontsize=fontsize)
+    plt.plot(xx, potential, color=color, linestyle=ls, lw=2.5)
+if labeling: plt.xlabel('U', fontsize=fontsize)
+if labeling: plt.ylabel(r'$0.5\|U\|^2 - \phi(Y=1,U)$', fontsize=fontsize)
+plt.xlim(-3, 3)
 
 # Subplot 3: learned vs exact transport map T(u, y=1)
 plt.subplot(1, 3, 3)
-plt.plot(xx[:-1], T_exact[:-1], 'k-', lw=2)
+plt.plot(xx[:-1], T_exact[:-1], 'k-', lw=2.5)
 for lamda, res in results.items():
     color, ls = lambda_styles[lamda]
-    plt.plot(xx, res['T_plot'], color=color, linestyle=ls, lw=2)
-plt.xlabel('U', fontsize=fontsize)
-plt.ylabel(r"$T(Y=1,U)$", fontsize=fontsize)
+    plt.plot(xx, res['T_plot'], color=color, linestyle=ls, lw=2.5)
+if labeling: plt.xlabel('U', fontsize=fontsize)
+if labeling: plt.ylabel(r"$T(Y=1,U)$", fontsize=fontsize)
+plt.xlim(-3, 3)
 
 # --- Save figure ---
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-save_dir = os.path.dirname(os.path.abspath(__file__))  # same folder as this script
-plt.savefig(os.path.join(save_dir, f'Figure_1_Bimodal_static_example_{timestamp}.pdf'), bbox_inches='tight')
+# timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+plt.savefig(f'bimodal_static_example.pdf', bbox_inches='tight')
 plt.show()
