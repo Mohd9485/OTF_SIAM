@@ -50,7 +50,7 @@ python smac_tuning_Bimodal.py   # writes results to smac3_output/
 
 ## Notes
 
-- Each Figure 2 script runs AVG_SIM = 10 independent trials per configuration and averages AA-SW₂. Runtime scales with the number of dimensions / particle counts swept.
+- Each Figure script runs AVG_SIM = 10 independent trials per configuration and averages AA-SW₂. Runtime scales with the number of dimensions / particle counts swept.
 - `error_vs_particles.py` must be run **twice** — once with `d = 2` and once with `d = 10` (line 226) — to produce the two particle-count panels.
 - The SMAC tuning script uses a shared data cache (`smac_shared_data_d<d>.npz`) written on first run so worker processes do not regenerate data independently.
 - All three regularization strengths (λ = 0, 0.01, 0.1) are evaluated in a single run.
