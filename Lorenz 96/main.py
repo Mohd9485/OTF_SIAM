@@ -333,7 +333,7 @@ plt.savefig(f"MSE_L96_{time.strftime('%Y%m%d_%H%M%S')}.pdf", bbox_inches='tight'
 
 # --- Save Results ---
 
-np.savez(
+np.savez_compressed(
     'DATA_file_L96.npz',
     randint          = randint,
     time             = t,
