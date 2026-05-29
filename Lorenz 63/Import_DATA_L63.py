@@ -148,7 +148,7 @@ plt.semilogy(t, distance_OTF.mean(axis=1),     color='C3', linestyle='--', label
 plt.semilogy(t, distance_OTF_reg.mean(axis=1), color='C4', linestyle='-.', label=r"$OTF_{(\lambda=0.1)}$", lw=2.5)
 plt.legend(fontsize=fontsize)
 if labeling: plt.xlabel(r'$time$', fontsize=fontsize)
-if labeling: plt.ylabel(r'$W_2$',  fontsize=fontsize)
+if labeling: plt.ylabel(r'$\mathrm{AA\text{-}SW}_2$',  fontsize=fontsize)
 plt.savefig('L63_w2_vs_time.pdf', bbox_inches='tight', dpi=300)
 
 

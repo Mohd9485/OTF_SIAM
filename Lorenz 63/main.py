@@ -167,11 +167,10 @@ sigmma0 = noise**2      # variance of the initial state distribution
 gamma   = noise/1       # observation noise std
 x0_amp  = 1             # initial state amplitude scaling factor
 Noise   = [sigmma, gamma]  # packed noise vector passed to filters
-rk4     = True         # use RK4 fixed-step integration
+rk4     = True*0         # use RK4 fixed-step integration
 
 delta   = [0.1, 0.1]   # OTF regularization weights [lambda_T, lambda_f]
-J       = int(1000/4)  # EnKF ensemble size
-J_sir   = 100_000      # large-SIR reference particle count
+J       = int(1000/1)  # EnKF ensemble size
 p_true  = 1000         # particles subsampled from SIR for W2 computation
 AVG_SIM = 10           # number of independent simulation runs to average over
 
@@ -183,14 +182,12 @@ t      = np.arange(0.0, tau*N, tau)    # time grid
 X_True = np.zeros((AVG_SIM, N, L))    # true state trajectories
 Y_True = np.zeros((AVG_SIM, N, dy))   # observation trajectories
 X0     = np.zeros((AVG_SIM, L, J))    # EnKF initial particle ensembles
-X0_sir = np.zeros((AVG_SIM, L, J_sir))# SIR initial particle ensembles
 
 for k in range(AVG_SIM):
     x, y       = Gen_True_Data(L, dy, N, x0_amp, sigmma0, sigmma, gamma, tau)
     X_True[k,] = x
     Y_True[k,] = y
     X0[k,]     = np.transpose(np.random.multivariate_normal(np.zeros(L), sigmma0*sigmma0 * np.eye(L), J))
-    X0_sir[k,] = np.transpose(np.random.multivariate_normal(np.zeros(L), sigmma0*sigmma0 * np.eye(L), J_sir))
 
 
 # --- Run Filters ---
