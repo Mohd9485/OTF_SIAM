@@ -80,7 +80,6 @@ L       = X_OTF.shape[2]   # state dimension
 J       = X_OTF.shape[3]   # ensemble size
 dy      = Y_true.shape[2]  # observation dimension
 
-
 labeling = True  # set True to show all axis labels
 
 # --- W2 Computation ---
@@ -108,9 +107,6 @@ for i in range(N):
     distance_otf[str(i)]     = []
     distance_otf_reg[str(i)] = []
 
-a = np.ones(p_true) / p_true  # uniform weights for reference distribution
-b = np.ones(J) / J            # uniform weights for filter distribution
-
 for k in range(AVG_SIM):
     X_true_dist = SIR(Y_true[k,].reshape(1, N, dy), X0_true[k,].reshape(1, L, true_particle), L63, h, t, tau, Noise, rk4)
     print(f"Computing W2 — simulation {k+1}/{AVG_SIM}")
@@ -119,13 +115,13 @@ for k in range(AVG_SIM):
         ref = X_true_dist[0, i, :, :p_true]  # (L, p_true) reference particles
 
         distance_enkf[str(i)].append(
-            np.mean([np.sqrt(ot.emd2(a, b, ot.dist(ref[l:l+1].T, X_EnKF[k, i, l:l+1].T)))    for l in range(L)]))
+            np.mean([np.sqrt(ot.emd2_1d(ref[l], X_EnKF[k, i, l],    metric='sqeuclidean')) for l in range(L)]))
         distance_sir[str(i)].append(
-            np.mean([np.sqrt(ot.emd2(a, b, ot.dist(ref[l:l+1].T, X_SIR[k, i, l:l+1].T)))     for l in range(L)]))
+            np.mean([np.sqrt(ot.emd2_1d(ref[l], X_SIR[k, i, l],     metric='sqeuclidean')) for l in range(L)]))
         distance_otf[str(i)].append(
-            np.mean([np.sqrt(ot.emd2(a, b, ot.dist(ref[l:l+1].T, X_OTF[k, i, l:l+1].T)))     for l in range(L)]))
+            np.mean([np.sqrt(ot.emd2_1d(ref[l], X_OTF[k, i, l],     metric='sqeuclidean')) for l in range(L)]))
         distance_otf_reg[str(i)].append(
-            np.mean([np.sqrt(ot.emd2(a, b, ot.dist(ref[l:l+1].T, X_OTF_reg[k, i, l:l+1].T))) for l in range(L)]))
+            np.mean([np.sqrt(ot.emd2_1d(ref[l], X_OTF_reg[k, i, l], metric='sqeuclidean')) for l in range(L)]))
 
 distance_EnKF    = np.zeros((N, AVG_SIM))  # W2 array: (time steps, simulations)
 distance_SIR     = np.zeros_like(distance_EnKF)
@@ -150,7 +146,6 @@ plt.legend(fontsize=fontsize)
 if labeling: plt.xlabel(r'$time$', fontsize=fontsize)
 if labeling: plt.ylabel(r'$\mathrm{AA\text{-}SW}_2$',  fontsize=fontsize)
 plt.savefig('L63_w2_vs_time.pdf', bbox_inches='tight', dpi=300)
-
 
 # --- Density Heatmap Plots ---
 
