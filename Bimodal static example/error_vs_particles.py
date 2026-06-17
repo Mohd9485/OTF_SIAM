@@ -215,11 +215,7 @@ def w2_distance(x, y):
     """Compute the 2-Wasserstein distance between two empirical distributions using exact OT."""
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
-    n, m = x.shape[0], y.shape[0]
-    a = np.ones(n) / n
-    b = np.ones(m) / m
-    M = ot.dist(x, y, metric='sqeuclidean')
-    return np.sqrt(ot.emd2(a, b, M))
+    return np.sqrt(ot.emd2_1d(x, y, metric='sqeuclidean'))
 
 
 # --- Fixed settings ---
@@ -288,7 +284,7 @@ for N in NN:
             p_eval = min(p_true, N)
             sim_w2 = 0.0
             for j in range(d):
-                sim_w2 += w2_distance(X_true[:p_eval, j:j+1], x_transported[:p_eval, j:j+1])
+                sim_w2 += w2_distance(X_true[:p_eval, j], x_transported[:p_eval, j])
             w2 += sim_w2 / d
             x_otf[str(lamda)][str(N) + '_' + str(k)] = x_transported
 
@@ -350,8 +346,8 @@ for N in NN:
         sir_w2  = 0.0
         enkf_w2 = 0.0
         for j in range(d):
-            sir_w2  += w2_distance(X_true[:p_eval, j:j+1], X_SIR[str(N)  + '_' + str(k)][:p_eval, j:j+1])
-            enkf_w2 += w2_distance(X_true[:p_eval, j:j+1], X_EnKF[str(N) + '_' + str(k)][:p_eval, j:j+1])
+            sir_w2  += w2_distance(X_true[:p_eval, j], X_SIR[str(N)  + '_' + str(k)][:p_eval, j])
+            enkf_w2 += w2_distance(X_true[:p_eval, j], X_EnKF[str(N) + '_' + str(k)][:p_eval, j])
         w2_sir  += sir_w2  / d
         w2_enkf += enkf_w2 / d
 
