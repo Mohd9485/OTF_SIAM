@@ -1,0 +1,77 @@
+"""
+@author: Mohammad Al-Jarrah
+"""
+
+# --- Best SMAC-Tuned Hyperparameters (see smac_tuning_L96.py) ---
+# Raw integer values are scaled by constants in get_params / get_params_enkf.
+
+# OTF_EnKF (OTF with EnKF warm start, OTF_EnKF.py)
+_SMAC_BEST_EnKF = {
+    'batch_size':       3,     # x32  → BATCH_SIZE   = 96
+    'inner_iterations': 2,     # inner T-update steps per outer iteration
+    'iteration':        1,     # x512 → ITERATION    = 512
+    'lr_T':             5e-4,  # learning rate for the transport map network T
+    'lr_f':             5e-4,  # learning rate for the potential network f
+    'num_neuron_T':     4,     # x32  → NUM_NEURON_T = 128
+    'num_neuron_f':     4,     # x32  → NUM_NEURON_f = 128
+}
+
+def get_params_enkf(L, dy):
+    """
+    Build the OTF-EnKF parameters dict from the best SMAC-tuned hyperparameters.
+
+    Parameters
+    ----------
+    L  : int — state space dimension
+    dy : int — observation space dimension
+
+    Returns
+    -------
+    dict — hyperparameter dictionary consumed by OTF_EnKF()
+    """
+    return {
+        'INPUT_DIM':              [L, dy],                                   # [state dim, observation dim]
+        'NUM_NEURON':             [_SMAC_BEST_EnKF['num_neuron_f'] * 32,     # hidden width of f
+                                   _SMAC_BEST_EnKF['num_neuron_T'] * 32],    # hidden width of T
+        'BATCH_SIZE':             _SMAC_BEST_EnKF['batch_size'] * 32,
+        'LearningRate':           [_SMAC_BEST_EnKF['lr_f'], _SMAC_BEST_EnKF['lr_T']],
+        'ITERATION':              _SMAC_BEST_EnKF['iteration'] * 512,        # training iterations at the first time step
+        'Final_Number_ITERATION': 64,                                        # floor the per-step budget is halved down to
+        'inner_iterations':       _SMAC_BEST_EnKF['inner_iterations'],
+    }
+
+
+# OTF (OTF.py)
+_SMAC_BEST = {
+    'batch_size':       2,     # x32  → BATCH_SIZE   = 64
+    'inner_iterations': 3,     # inner T-update steps per outer iteration
+    'iteration':        1,     # x512 → ITERATION    = 512
+    'lr_T':             1e-3,  # learning rate for the transport map network T
+    'lr_f':             1e-3,  # learning rate for the potential network f
+    'num_neuron_T':     6,     # x32  → NUM_NEURON_T = 192
+    'num_neuron_f':     6,     # x32  → NUM_NEURON_f = 192
+}
+
+def get_params(L, dy):
+    """
+    Build the OTF parameters dict from the best SMAC-tuned hyperparameters.
+
+    Parameters
+    ----------
+    L  : int — state space dimension
+    dy : int — observation space dimension
+
+    Returns
+    -------
+    dict — hyperparameter dictionary consumed by OTF()
+    """
+    return {
+        'INPUT_DIM':              [L, dy],                               # [state dim, observation dim]
+        'NUM_NEURON':             [_SMAC_BEST['num_neuron_f'] * 32,      # hidden width of f
+                                   _SMAC_BEST['num_neuron_T'] * 32],     # hidden width of T
+        'BATCH_SIZE':             _SMAC_BEST['batch_size'] * 32,
+        'LearningRate':           [_SMAC_BEST['lr_f'], _SMAC_BEST['lr_T']],
+        'ITERATION':              _SMAC_BEST['iteration'] * 512,         # training iterations at the first time step
+        'Final_Number_ITERATION': 64 * 8,                                # = 512 = ITERATION, so OTF trains 512 iterations at every step
+        'inner_iterations':       _SMAC_BEST['inner_iterations'],
+    }
