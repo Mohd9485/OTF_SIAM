@@ -18,7 +18,7 @@ _SMAC_BEST_EnKF = {
 
 def get_params_enkf(L, dy):
     """
-    Build the OTF-EnKF parameters dict from the best SMAC-tuned hyperparameters.
+    Build the OTF_EnKF parameters dict from the best SMAC-tuned hyperparameters.
 
     Parameters
     ----------
